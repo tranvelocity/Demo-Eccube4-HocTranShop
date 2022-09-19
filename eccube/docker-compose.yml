@@ -1,0 +1,114 @@
+version: "3"
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  mysql-database:
+    driver: local
+
+  ### ignore folder volume #####
+  var:
+    driver: local
+  vendor:
+    driver: local
+  node_modules:
+    driver: local
+
+services:
+  ### ECCube4 ##################################
+  ec-cube:
+    build:
+      context: .
+    ports:
+      - 8080:80
+      - 4430:443
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      ### 同期対象からコストの重いフォルダを除外 #####################
+      - "var:/var/www/html/var"
+      - "vendor:/var/www/html/vendor"
+      - "node_modules:/var/www/html/node_modules"
+    environment:
+      # EC-CUBE environments
+      APP_ENV: "dev"
+      APP_DEBUG: 1
+      REDIS_HOST: redis
+      MAILER_URL: "smtp://mailcatcher:1025"
+      ECCUBE_AUTH_MAGIC: "<change.me>"
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_SERVER_VERSION: 5.7
+      # TRUSTED_HOSTS: '^127.0.0.1$$,^localhost$$'
+      ECCUBE_LOCALE: "ja"
+      ECCUBE_TIMEZONE: "Asia/Tokyo"
+      ECCUBE_CURRENCY: "JPY"
+      ECCUBE_ADMIN_ROUTE: "admin"
+      # ECCUBE_USER_DATA_ROUTE: "user_data"
+      # ECCUBE_ADMIN_ALLOW_HOSTS: []
+      # ECCUBE_FORCE_SSL: false
+      # ECCUBE_TEMPLATE_CODE: "default"
+      # ECCUBE_COOKIE_NAME: "eccube"
+      # ECCUBE_COOKIE_PATH: "/"
+      # ECCUBE_COOKIE_LIFETIME: 0
+      # ECCUBE_GC_MAXLIFETIME: 1440
+      # ECCUBE_ADMIN_USER: "admin"
+      # ECCUBE_ADMIN_PASS: "password"
+    networks:
+      - backend
+
+  ### Mailcatcher ##################################
+  mailcatcher:
+    image: ${MAILCATCHER_IMAGE}
+    container_name: ${PROJECT_NAME}_mailcatcher
+    ports:
+      - "1080:1080"
+      - "1025:1025"
+    networks:
+      - backend
+
+  mysql:
+    image: ${MYSQL_IMAGE}
+    container_name: ${PROJECT_NAME}_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: ${EC_DB_USER}
+      MYSQL_PASSWORD: ${EC_DB_PASS}
+    volumes:
+      - mysql-database:/var/lib/mysql
+      - ./dockerbuild/grant_to_dbuser.sql:/docker-entrypoint-initdb.d/grant_to_dbuser.sql
+    ports:
+      - 13306:3306
+    networks:
+      - backend
+    healthcheck:
+      test: mysqladmin ping
+      interval: 3s
+      timeout: 3s
+      retries: 3
+
+  phpmyadmin:
+    image: ${PHPMYADMIN_IMAGE}
+    container_name: ${PROJECT_NAME}_phpmyadmin
+    restart: unless-stopped
+    ports:
+        - 8200:80
+    environment:
+        PMA_HOST: mysql
+        PMA_PORT: 3306
+        PMA_USER: ${EC_DB_USER}
+        PMA_PASSWORD: ${EC_DB_PASS}
+    networks:
+        - backend
+
+  redis:
+    image: ${REDIS_IMAGE}
+    container_name: ${PROJECT_NAME}_redis
+    restart: unless-stopped
+    tty: true
+    volumes:
+        - ./redis/data:/data
+    networks:
+        - backend
